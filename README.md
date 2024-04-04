@@ -10,6 +10,8 @@ This method aims at enhancing the efficiency and performance of YOLOv8 by slimmi
 
 ### Installation
 
+Clone the repository and rename the `yolov8-prune-network-slimming` directory to `ultralytics`.
+
 ```
 cd ultralytics
 
@@ -18,7 +20,7 @@ pip install -e .
 
 ### Steps
 
-Within the ultralytics directory, execute the scripts provided below. 
+Within the  `ultralytics` directory, execute the scripts provided below. 
 
 The parameters within these Python scripts can be adjusted according to your requirements.
 
