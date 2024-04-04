@@ -49,6 +49,9 @@ from ultralytics.utils.torch_utils import (
     strip_optimizer,
 )
 
+# ========================================================
+from ultralytics.nn.modules.block import Bottleneck
+# ========================================================
 
 class BaseTrainer:
     """
@@ -96,6 +99,9 @@ class BaseTrainer:
             overrides (dict, optional): Configuration overrides. Defaults to None.
         """
         self.args = get_cfg(cfg, overrides)
+        # ========================================
+        self.finetune = self.args.finetune
+        # ========================================
         self.check_resume(overrides)
         self.device = select_device(self.args.device, self.args.batch)
         self.validator = None
@@ -156,6 +162,8 @@ class BaseTrainer:
         self.loss_names = ["Loss"]
         self.csv = self.save_dir / "results.csv"
         self.plot_idx = [0, 1, 2]
+
+        self.bn_weigths = None
 
         # Callbacks
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
@@ -265,6 +273,9 @@ class BaseTrainer:
                 v.requires_grad = True
 
         # Check AMP
+        # ====================================================================
+        self.args.amp = False
+        # ====================================================================
         self.amp = torch.tensor(self.args.amp).to(self.device)  # True or False
         if self.amp and RANK in (-1, 0):  # Single-GPU and DDP
             callbacks_backup = callbacks.default_callbacks.copy()  # backup callbacks as check_amp() resets them
@@ -387,7 +398,21 @@ class BaseTrainer:
 
                 # Backward
                 self.scaler.scale(self.loss).backward()
-
+                
+                # # ============================= sparsity training ========================== #
+                if self.sr is not None:
+                    sr_adjusted = self.sr * (1 - 0.9 * self.epoch / self.epochs)  # 线性衰减的L1正则化系数
+                    ignore_bn_list = []
+                    for k, m in self.model.named_modules():
+                        if isinstance(m, Bottleneck):
+                            if m.add:     # 只有Bottleneck模块中才做add操作
+                                ignore_bn_list.append(k + '.cv1.bn')   # 忽略C2F模块中的BottleNeck模块中的第一个卷积层
+                                ignore_bn_list.append(k + '.cv2.bn')   # 忽略C2F模块中的BottleNeck模块中的第二个卷积层
+                        if isinstance(m, nn.BatchNorm2d) and (k not in ignore_bn_list):
+                            m.weight.grad.data.add_(sr_adjusted * torch.sign(m.weight.data))  # L1正则化
+                            m.bias.grad.data.add_(self.sr * 10 * torch.sign(m.bias.data))  
+                # # ============================= sparsity training ========================== #
+                
                 # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
                 if ni - last_opt_step >= self.accumulate:
                     self.optimizer_step()
@@ -451,6 +476,26 @@ class BaseTrainer:
                     self.stop |= epoch >= self.epochs  # stop if exceeded epochs
                 self.scheduler.step()
             self.run_callbacks("on_fit_epoch_end")
+
+            # =============== show bn weights ===================== #
+            if self.sr is not None:
+                module_list = []
+                for i, layer in self.model.named_modules():
+                    if isinstance(layer, nn.BatchNorm2d) and i not in ignore_bn_list:
+                        bnw = layer.state_dict()['weight']
+                        bnb = layer.state_dict()['bias']
+                        module_list.append(bnw)
+                size_list = [idx.data.shape[0] for idx in module_list]
+
+                self.bn_weights = torch.zeros(sum(size_list))
+                bnb_weights = torch.zeros(sum(size_list))
+                index = 0
+                for idx, size in enumerate(size_list):
+                    self.bn_weights[index:(index + size)] = module_list[idx].data.abs().clone()            
+                    index += size
+                self.run_callbacks("on_fit_epoch_end_prune")
+            # =============== show bn weights ===================== #
+
             torch.cuda.empty_cache()  # clear GPU memory at end of epoch, may help reduce CUDA out of memory errors
 
             # Early Stopping

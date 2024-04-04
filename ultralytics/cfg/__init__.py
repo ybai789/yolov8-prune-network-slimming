@@ -206,9 +206,15 @@ def get_cfg(cfg: Union[str, Path, Dict, SimpleNamespace] = DEFAULT_CFG_DICT, ove
     # Merge overrides
     if overrides:
         overrides = cfg2dict(overrides)
-        if "save_dir" not in cfg:
-            overrides.pop("save_dir", None)  # special override keys to ignore
+        # =================================================
+        finetune = overrides.pop('finetune', None)
+        # =================================================
+        if 'save_dir' not in cfg:
+            overrides.pop('save_dir', None)  # special override keys to ignore
         check_dict_alignment(cfg, overrides)
+        # =================================================
+        overrides['finetune'] = finetune
+        # =================================================
         cfg = {**cfg, **overrides}  # merge cfg and overrides dicts (prefer overrides)
 
     # Special handling for numeric project/name
@@ -221,6 +227,10 @@ def get_cfg(cfg: Union[str, Path, Dict, SimpleNamespace] = DEFAULT_CFG_DICT, ove
 
     # Type and Value checks
     check_cfg(cfg)
+    
+    # ==================================
+    cfg['finetune'] = finetune
+    # ==================================
 
     # Return instance
     return IterableSimpleNamespace(**cfg)

@@ -93,12 +93,16 @@ def on_fit_epoch_end(trainer):
     """Logs epoch metrics at end of training epoch."""
     _log_scalars(trainer.metrics, trainer.epoch + 1)
 
+def on_fit_epoch_end_prune(trainer):
+    if WRITER:
+        WRITER.add_histogram('bn_weights/hist', trainer.bn_weights, trainer.epoch + 1, bins='doane')
 
 callbacks = (
     {
         "on_pretrain_routine_start": on_pretrain_routine_start,
         "on_train_start": on_train_start,
         "on_fit_epoch_end": on_fit_epoch_end,
+        "on_fit_epoch_end_prune": on_fit_epoch_end_prune,
         "on_train_epoch_end": on_train_epoch_end,
     }
     if SummaryWriter

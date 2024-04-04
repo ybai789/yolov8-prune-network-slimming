@@ -15,6 +15,8 @@ from ultralytics.utils import LOGGER, RANK
 from ultralytics.utils.plotting import plot_images, plot_labels, plot_results
 from ultralytics.utils.torch_utils import de_parallel, torch_distributed_zero_first
 
+from ultralytics.nn.tasks_pruned import DetectionModelPruned
+
 
 class DetectionTrainer(BaseTrainer):
     """
@@ -83,9 +85,15 @@ class DetectionTrainer(BaseTrainer):
         self.model.args = self.args  # attach hyperparameters to model
         # TODO: self.model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc
 
-    def get_model(self, cfg=None, weights=None, verbose=True):
+    def get_model(self, cfg=None, weights=None, verbose=True, maskbndict=None):
         """Return a YOLO detection model."""
-        model = DetectionModel(cfg, nc=self.data["nc"], verbose=verbose and RANK == -1)
+        # ===========================================================================
+        if self.finetune:
+            assert maskbndict is not None, "maskbndict must be stored in weights so that it can be loaded for finetuing"
+            model = DetectionModelPruned(maskbndict, cfg, nc=self.data['nc'], verbose=verbose and RANK == -1)
+        else:
+            model = DetectionModel(cfg, nc=self.data['nc'], verbose=verbose and RANK == -1)
+        # ===========================================================================
         if weights:
             model.load(weights)
         return model
